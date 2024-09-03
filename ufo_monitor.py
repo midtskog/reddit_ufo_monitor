@@ -1,11 +1,13 @@
 import praw
 import time
+import numpy as np
 from datetime import datetime
+from scipy.stats import zscore
 
 # Reddit API credentials
 client_id = ''
 client_secret = ''
-user_agent = 'doesn't really matter'
+user_agent = 'doesn`t really matter'
 
 # Create a Reddit instance
 reddit = praw.Reddit(client_id=client_id,
@@ -19,6 +21,7 @@ subreddit = reddit.subreddit(subreddit_name)
 # Log file paths
 log_file_path = r'c:\users\ufo_monitor.txt'
 verbose_log_file_path = r'c:\users\ufo_monitor_adv.txt'
+anomaly_log_file_path = r'c:\users\ufo_anomalies.txt'
 
 def get_comments_upvote_counts():
     upvote_counts = {}
@@ -70,6 +73,12 @@ def log_upvote_differences(initial_upvotes, new_upvotes, tracked_post_ids):
     
     return total_upvotes_difference, detailed_log
 
+def detect_anomalies(data):
+    scores = np.array([d['score'] for d in data.values()])
+    z_scores = zscore(scores)
+    anomalies = {cid: data[cid] for cid, z in zip(data.keys(), z_scores) if abs(z) > 2.5}  # 2.5 is a threshold for z-score
+    return anomalies
+
 def monitor_upvote_changes():
     previous_tracked_post_ids = set()
 
@@ -91,10 +100,21 @@ def monitor_upvote_changes():
             # Step 2: Get new upvote counts and track post IDs
             new_upvotes, _ = get_comments_upvote_counts()
             
+            # Detect anomalies in the upvote changes
+            anomalies = detect_anomalies(new_upvotes)
+            
             # Calculate the upvote differences and get detailed log
             total_upvotes_difference, detailed_log = log_upvote_differences(
                 initial_upvotes, new_upvotes, tracked_post_ids
             )
+            
+            # Log anomalies
+            if anomalies:
+                with open(anomaly_log_file_path, 'a', encoding='utf-8') as anomaly_log_file:
+                    anomaly_log_file.write(f"{formatted_time} | Anomalies Detected:\n")
+                    for cid, data in anomalies.items():
+                        anomaly_log_file.write(f"Comment ID: {cid} | Score: {data['score']} | Author: {data['author']} | Link: {data['permalink']}\n")
+                    anomaly_log_file.write("-------------------------------------\n")
             
             # Prepare the simple log entry
             log_entry = (
